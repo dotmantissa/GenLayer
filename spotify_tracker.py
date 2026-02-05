@@ -30,15 +30,18 @@ class SpotifyTracker(gl.Contract):
             int: The current number of monthly listeners.
         """
         
-        # Construct the public URL
+        # Use the standard public URL
         url = f"https://open.spotify.com/artist/{artist_id}"
 
         def fetch_data_nondet() -> int:
             # 1. Render the page to text.
-            # Spotify pages are React-heavy; 'text' mode usually extracts the 
-            # visible DOM content where the listener count resides.
             print(f"Fetching {url}...")
-            web_content = gl.nondet.web.render(url, mode="text")
+            # We catch errors here to prevent the runner from crashing if the URL is unreachable
+            try:
+                web_content = gl.nondet.web.render(url, mode="text")
+            except Exception as e:
+                print(f"Web render failed: {e}")
+                return 0
 
             # 2. Construct the extraction task
             task = f"""
@@ -46,18 +49,16 @@ class SpotifyTracker(gl.Contract):
             Find the number associated with "Monthly Listeners".
             
             Target Page Text:
-            {web_content[:4000]}  # Limit context window to the top (header) section
+            {web_content[:4000]}
             
             Instructions:
-            1. Find the numeric value for monthly listeners (it may look like "84,392,109").
+            1. Find the numeric value for monthly listeners (e.g. "84,392,109").
             2. Remove any commas or non-numeric characters.
             3. Return the raw integer.
-            4. If the artist or number is not found, return 0.
+            4. If not found, return 0.
 
             Respond using ONLY the following JSON format:
-            {{
-                "listeners": int
-            }}
+            {{ "listeners": int }}
             """
 
             # 3. Execute LLM
@@ -65,17 +66,14 @@ class SpotifyTracker(gl.Contract):
             
             # 4. Clean and Parse
             cleaned_result = result_raw.replace("```json", "").replace("```", "").strip()
-            print(f"LLM Result: {cleaned_result}")
             
             try:
                 parsed = json.loads(cleaned_result)
                 return int(parsed["listeners"])
             except:
-                # Fallback if LLM output is malformed
                 return 0
 
         # 5. Enforce Strict Equality
-        # All validators must extract the exact same integer from the page snapshot.
         listeners_count = gl.eq_principle.strict_eq(fetch_data_nondet)
 
         # 6. Update State
@@ -85,9 +83,6 @@ class SpotifyTracker(gl.Contract):
 
     @gl.public.view
     def get_monthly_listeners(self, artist_id: str) -> int:
-        """
-        Returns the last stored listener count for an artist.
-        """
         if artist_id in self.artist_listeners:
             return int(self.artist_listeners[artist_id])
         return 0
