@@ -141,12 +141,20 @@ sys.modules["genlayer"] = _genlayer_mod
 
 # ─── Load contract module once ────────────────────────────────────────────────
 
-_CONTRACT_PATH = Path(__file__).parent.parent.parent / "dev_bounty.py"
-_spec   = importlib.util.spec_from_file_location("dev_bounty", _CONTRACT_PATH)
-_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_module)
-
-GitHubBounty = _module.GitHubBounty
+def _load_contract_class(path: Path):
+    """Load a .py file and return the first gl.Contract subclass found."""
+    spec   = importlib.util.spec_from_file_location(path.stem, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for name in dir(module):
+        obj = getattr(module, name)
+        if (
+            isinstance(obj, type)
+            and issubclass(obj, gl.Contract)
+            and obj is not gl.Contract
+        ):
+            return obj
+    raise ValueError(f"No gl.Contract subclass found in {path}")
 
 # ─── VMContext (direct_vm fixture API) ───────────────────────────────────────
 
@@ -221,14 +229,26 @@ def direct_vm() -> VMContext:
 
 @pytest.fixture
 def direct_deploy():
-    """Returns a factory that 'deploys' GitHubBounty with zeroed storage."""
+    """Returns a factory that deploys any GenLayer contract with zeroed storage."""
+    import types as _types
+
     def _deploy(_path: str = "dev_bounty.py"):
-        instance = object.__new__(GitHubBounty)
-        instance.bounties    = TreeMap()
-        instance.bounty_order = DynArray()
-        instance.balances    = TreeMap()
+        contract_path = Path(__file__).parent.parent.parent / _path
+        contract_cls  = _load_contract_class(contract_path)
+        instance      = object.__new__(contract_cls)
+
+        # Auto-initialize collection fields from class annotations
+        for klass in reversed(contract_cls.__mro__):
+            for field, ann in getattr(klass, "__annotations__", {}).items():
+                origin = getattr(ann, "__origin__", ann)
+                if isinstance(origin, type) and issubclass(origin, TreeMap):
+                    setattr(instance, field, TreeMap())
+                elif isinstance(origin, type) and issubclass(origin, DynArray):
+                    setattr(instance, field, DynArray())
+
         instance.__init__()
         return instance
+
     return _deploy
 
 
