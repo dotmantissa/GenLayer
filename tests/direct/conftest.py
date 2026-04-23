@@ -232,7 +232,7 @@ def direct_deploy():
     """Returns a factory that deploys any GenLayer contract with zeroed storage."""
     import types as _types
 
-    def _deploy(_path: str = "dev_bounty.py"):
+    def _deploy(_path: str = "dev_bounty.py", *init_args, **init_kwargs):
         contract_path = Path(__file__).parent.parent.parent / _path
         contract_cls  = _load_contract_class(contract_path)
         instance      = object.__new__(contract_cls)
@@ -246,7 +246,7 @@ def direct_deploy():
                 elif isinstance(origin, type) and issubclass(origin, DynArray):
                     setattr(instance, field, DynArray())
 
-        instance.__init__()
+        instance.__init__(*init_args, **init_kwargs)
         return instance
 
     return _deploy
